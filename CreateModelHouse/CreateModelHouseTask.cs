@@ -55,7 +55,7 @@ namespace CreateModelHouse
             points.Add(new XYZ(dx, -dy, 0));
             points.Add(new XYZ(dx, dy, 0));
             points.Add(new XYZ(-dx, dy, 0));
-            // поскольку в массиве будем перебирать точки попарно, т.е. построим, то добавим в массив точку иакую же, как и стартовая
+            //поскольку в массиве будем перебирать точки попарно, т.е. построим, то добавим в массив точку иакую же, как и стартовая
             points.Add(new XYZ(-dx, -dy, 0));
 
             List<Wall> walls = new List<Wall>();
