@@ -1,5 +1,6 @@
 ﻿using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.UI;
 using System;
 using System.Collections.Generic;
@@ -15,9 +16,6 @@ namespace CreateModelHouse
     {
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
-            // ДЗ: подредактировать код = вынести построение стен в отдельный метод
-            // напр., вызвали метод CreateWalls
-
             Document doc = commandData.Application.ActiveUIDocument.Document;
 
             Level level1 = GetLevels(doc, "Уровень 1");
@@ -28,7 +26,7 @@ namespace CreateModelHouse
             return Result.Succeeded;
         }
 
-        public static Level GetLevels(Document doc, string levelName)
+        private static Level GetLevels(Document doc, string levelName)
         {
             List<Level> listLevel = new FilteredElementCollector(doc)
                 .OfClass(typeof(Level))
@@ -42,7 +40,7 @@ namespace CreateModelHouse
             return level;
         }
 
-        public static void CreateWalls(Document doc, Level level1, Level level2)
+        private static void CreateWalls(Document doc, Level level1, Level level2)
         {
             double width = UnitUtils.ConvertToInternalUnits(10000, UnitTypeId.Millimeters);
             double depth = UnitUtils.ConvertToInternalUnits(5000, UnitTypeId.Millimeters);
@@ -70,9 +68,69 @@ namespace CreateModelHouse
                 walls.Add(wall);
 
                 wall.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE).Set(level2.Id);
+
+                if (walls[i] == walls[0])
+                    AddDoor(doc, level1, walls[0]);
+                else
+                    AddWindow(doc, level1, walls[i]);
+
+            }
+            transaction.Commit();
+        }
+
+        private static void AddWindow(Document doc, Level level1, Wall wall)
+        {
+            FamilySymbol windowType = new FilteredElementCollector(doc)
+                .OfClass(typeof(FamilySymbol))
+                .OfCategory(BuiltInCategory.OST_Windows)
+                .OfType<FamilySymbol>()
+                .Where(w => w.Name.Equals("0915 x 1830 мм"))
+                .Where(x => x.FamilyName.Equals("Фиксированные"))
+                .FirstOrDefault();
+
+            LocationCurve hostCurve = wall.Location as LocationCurve;
+
+            XYZ point1 = hostCurve.Curve.GetEndPoint(0);
+            XYZ point2 = hostCurve.Curve.GetEndPoint(1);
+            XYZ point = (point1 + point2) / 2;
+
+            if (!windowType.IsActive)
+            {
+                windowType.Activate();
             }
 
-            transaction.Commit();
+            var window = doc.Create.NewFamilyInstance(point, windowType, wall, level1, StructuralType.NonStructural);
+
+            Parameter parameterHeight = window.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM);
+            double heightType = UnitUtils.ConvertToInternalUnits(900, UnitTypeId.Millimeters);
+            parameterHeight.Set(heightType);
+        }
+
+        private static void AddDoor(Document doc, Level level1, Wall wall)
+        {
+            // найдём нужный типоразмер
+            FamilySymbol doorType = new FilteredElementCollector(doc)
+                .OfClass(typeof(FamilySymbol))
+                .OfCategory(BuiltInCategory.OST_Doors)
+                .OfType<FamilySymbol>()
+                .Where(d => d.Name.Equals("0915 x 2134 мм"))
+                .Where(x => x.FamilyName.Equals("Одиночные-Щитовые"))
+                .FirstOrDefault();
+
+            LocationCurve hostCurve = wall.Location as LocationCurve;
+
+            XYZ point1 = hostCurve.Curve.GetEndPoint(0);
+            XYZ point2 = hostCurve.Curve.GetEndPoint(1);
+
+            XYZ point = (point1 + point2) / 2;
+
+            if (!doorType.IsActive)
+            {
+                doorType.Activate();
+            }
+
+            doc.Create.NewFamilyInstance(point, doorType, wall, level1, StructuralType.NonStructural);
         }
     }
 }
+
