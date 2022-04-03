@@ -1,4 +1,5 @@
-﻿using Autodesk.Revit.Attributes;
+﻿using Autodesk.Revit.ApplicationServices;
+using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.UI;
@@ -20,8 +21,24 @@ namespace CreateModelHouse
 
             Level level1 = GetLevels(doc, "Уровень 1");
             Level level2 = GetLevels(doc, "Уровень 2");
+            double width = UnitUtils.ConvertToInternalUnits(10500, UnitTypeId.Millimeters);
+            double depth = UnitUtils.ConvertToInternalUnits(5500, UnitTypeId.Millimeters);
 
-            CreateWalls(doc, level1, level2);
+            List<Wall> walls = CreateWalls(doc, level1, level2);
+            using (Transaction ts = new Transaction(doc, "Create House"))
+            {
+                ts.Start();
+
+                for (int i = 0; i < walls.Count; i++)
+                {
+                    if (walls[i] == walls[0])
+                        AddDoor(doc, level1, walls[0]);
+                    else
+                        AddWindow(doc, level1, walls[i]);
+                }
+                AddRoof(doc, level2, walls, width, depth);
+                ts.Commit();
+            }
 
             return Result.Succeeded;
         }
@@ -40,7 +57,7 @@ namespace CreateModelHouse
             return level;
         }
 
-        private static void CreateWalls(Document doc, Level level1, Level level2)
+        private static List<Wall> CreateWalls(Document doc, Level level1, Level level2)
         {
             double width = UnitUtils.ConvertToInternalUnits(10000, UnitTypeId.Millimeters);
             double depth = UnitUtils.ConvertToInternalUnits(5000, UnitTypeId.Millimeters);
@@ -53,7 +70,6 @@ namespace CreateModelHouse
             points.Add(new XYZ(dx, -dy, 0));
             points.Add(new XYZ(dx, dy, 0));
             points.Add(new XYZ(-dx, dy, 0));
-            //поскольку в массиве будем перебирать точки попарно, т.е. построим, то добавим в массив точку иакую же, как и стартовая
             points.Add(new XYZ(-dx, -dy, 0));
 
             List<Wall> walls = new List<Wall>();
@@ -68,14 +84,39 @@ namespace CreateModelHouse
                 walls.Add(wall);
 
                 wall.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE).Set(level2.Id);
-
-                if (walls[i] == walls[0])
-                    AddDoor(doc, level1, walls[0]);
-                else
-                    AddWindow(doc, level1, walls[i]);
-
             }
             transaction.Commit();
+
+            return walls;
+        }
+
+        private static void AddRoof(Document doc, Level level, List<Wall> walls, double width, double depth)
+        {
+            RoofType roofType = new FilteredElementCollector(doc)
+                .OfClass(typeof(RoofType))
+                .OfCategory(BuiltInCategory.OST_Roofs)
+                .OfType<RoofType>()
+                .Where(r => r.Name.Equals("Теплая крыша - Бетон"))
+                .Where(x => x.FamilyName.Equals("Базовая крыша"))
+                .FirstOrDefault();
+
+            double wallWidth = walls[0].Width;
+            double dt = wallWidth / 2;
+            Level level2 = GetLevels(doc, "Уровень 2");
+
+            double extrusionStart = -width / 2 - dt;
+            double extrusionEnd = width / 2 + dt;
+
+            double curveStart = -depth / 2 - dt;
+            double curveEnd = depth / 2 + dt;
+
+            CurveArray curveArray = new CurveArray();
+            curveArray.Append(Line.CreateBound(new XYZ(0, curveStart, level2.Elevation), new XYZ(0, 0, level2.Elevation + 5)));
+            curveArray.Append(Line.CreateBound(new XYZ(0, 0, level2.Elevation + 5), new XYZ(0, curveEnd, level2.Elevation)));
+
+            ReferencePlane plane = doc.Create.NewReferencePlane(new XYZ(0, 0, 0), new XYZ(0, 0, 20), new XYZ(0, 20, 0), doc.ActiveView);
+            ExtrusionRoof extrusionRoof = doc.Create.NewExtrusionRoof(curveArray, plane, level2, roofType, extrusionStart, extrusionEnd);
+            extrusionRoof.EaveCuts = EaveCutterType.TwoCutSquare;
         }
 
         private static void AddWindow(Document doc, Level level1, Wall wall)
